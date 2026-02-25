@@ -2747,7 +2747,8 @@ function Dashboard({
       [id]: {
         ig_tok: "",
         ig_uid: "",
-        tt_tok: ""
+        tt_tok: "",
+        tt_uid: ""
       }
     }));
     setShowNewProject(false);
@@ -3783,6 +3784,16 @@ function Dashboard({
       marginBottom: 3
     }
   }, "TikTok"), /*#__PURE__*/React.createElement("input", {
+    className: "glass-input",
+    placeholder: "Nom d'utilisateur TikTok",
+    value: accounts[app.id]?.tt_uid || "",
+    onChange: e => upAcc(app.id, "tt_uid", e.target.value),
+    style: {
+      marginBottom: 4,
+      fontSize: 11,
+      padding: "8px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "Token d'acc\xE8s TikTok",
