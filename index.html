@@ -1528,6 +1528,115 @@ async function geminiImg(prompt, key, model = "imagen") {
     throw new Error("Nano Banana: no image");
   }
 }
+async function anthropicImg(prompt, antKey) {
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": antKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: `Generate an image: ${prompt}`
+        }]
+      })
+    });
+    const d = await r.json();
+    const img = d.content?.find(b => b.type === "image");
+    if (img) return `data:${img.source.media_type};base64,${img.source.data}`;
+    throw new Error("Anthropic: no image generated");
+  } catch (e) {
+    throw new Error(e.message || "Anthropic image fail");
+  }
+}
+async function dalleImg(prompt, gptKey) {
+  try {
+    const r = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${gptKey}`
+      },
+      body: JSON.stringify({
+        model: "dall-e-3",
+        prompt,
+        n: 1,
+        size: "1024x1792",
+        response_format: "b64_json"
+      })
+    });
+    const d = await r.json();
+    if (d.data?.[0]?.b64_json) return `data:image/png;base64,${d.data[0].b64_json}`;
+    throw new Error(d.error?.message || "DALL-E fail");
+  } catch (e) {
+    throw new Error(e.message || "DALL-E image fail");
+  }
+}
+async function genImage(prompt, gemKey, antKey, gptKey) {
+  const tries = [];
+  if (gemKey) tries.push(() => geminiImg(prompt, gemKey, "imagen"), () => geminiImg(prompt, gemKey, "nano"));
+  if (gptKey) tries.push(() => dalleImg(prompt, gptKey));
+  if (antKey) tries.push(() => anthropicImg(prompt, antKey));
+  for (const fn of tries) {
+    try {
+      return await fn();
+    } catch {}
+  }
+  throw new Error("Aucune clé image disponible");
+}
+async function veoVideo(prompt, gemKey) {
+  // Step 1: Start generation
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": gemKey
+    },
+    body: JSON.stringify({
+      instances: [{
+        prompt
+      }],
+      parameters: {
+        aspectRatio: "9:16",
+        durationSeconds: 8
+      }
+    })
+  });
+  const op = await r.json();
+  if (!op.name) throw new Error(op.error?.message || "Veo: échec lancement");
+  // Step 2: Poll until done (max 3 min)
+  for (let i = 0; i < 18; i++) {
+    await new Promise(r => setTimeout(r, 10000));
+    const poll = await fetch(`https://generativelanguage.googleapis.com/v1beta/${op.name}`, {
+      headers: {
+        "x-goog-api-key": gemKey
+      }
+    });
+    const st = await poll.json();
+    if (st.done) {
+      const vid = st.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
+      if (vid?.uri) return vid.uri;
+      const vidAlt = st.response?.videos?.[0];
+      if (vidAlt?.gcsUri) return vidAlt.gcsUri;
+      throw new Error("Veo: pas de vidéo dans la réponse");
+    }
+  }
+  throw new Error("Veo: timeout après 3 min");
+}
+async function genVideo(prompt, gemKey) {
+  if (!gemKey) throw new Error("Clé Gemini requise pour la vidéo (Veo 3)");
+  return veoVideo(prompt, gemKey);
+}
+const CAP_PROMPT = (app, plat, isVid, day, hook, ht) => `Copywriter social media premium apps mobiles françaises. Seed: ${app.id}-${day}-${plat}-${Date.now()}.
+App: "${app.name}" (${app.sub}). ${app.desc || app.sub}. Hook: "${hook}". Platform: ${plat}. Format: ${isVid ? "Reel 15s" : "Image"}.
+Caption UNIQUE. JSON sans backticks:
+{"caption":"Caption ${plat} FR, 120-180 chars, viral, emojis modérés, CTA. Finis par: ${ht}","image_prompt":"Imagen 3: Pro floating iPhone 15 Pro Max showing ${app.name} app UI, dark studio, ${app.color} rim light, particles, luxury, 8K"}`;
 async function claudeCap(app, plat, isVid, day, anthropicKey) {
   const hooks = app.hooks || DEFAULT_HOOKS[app.id] || ["Découvrez " + app.name];
   const ht = app.ht || DEFAULT_HT[app.id] || "#" + app.name;
@@ -1546,10 +1655,7 @@ async function claudeCap(app, plat, isVid, day, anthropicKey) {
         max_tokens: 600,
         messages: [{
           role: "user",
-          content: `Copywriter social media premium apps mobiles françaises. Seed: ${app.id}-${day}-${plat}-${Date.now()}.
-App: "${app.name}" (${app.sub}). ${app.desc || app.sub}. Hook: "${hook}". Platform: ${plat}. Format: ${isVid ? "Reel 15s" : "Image"}.
-Caption UNIQUE. JSON sans backticks:
-{"caption":"Caption ${plat} FR, 120-180 chars, viral, emojis modérés, CTA. Finis par: ${ht}","image_prompt":"Imagen 3: Pro floating iPhone 15 Pro Max showing ${app.name} app UI, dark studio, ${app.color} rim light, particles, luxury, 8K"}`
+          content: CAP_PROMPT(app, plat, isVid, day, hook, ht)
         }]
       })
     });
@@ -1578,10 +1684,7 @@ async function gptCap(app, plat, isVid, day, openaiKey) {
         max_tokens: 600,
         messages: [{
           role: "user",
-          content: `Copywriter social media premium apps mobiles françaises. Seed: ${app.id}-${day}-${plat}-${Date.now()}.
-App: "${app.name}" (${app.sub}). ${app.desc || app.sub}. Hook: "${hook}". Platform: ${plat}. Format: ${isVid ? "Reel 15s" : "Image"}.
-Caption UNIQUE. JSON sans backticks:
-{"caption":"Caption ${plat} FR, 120-180 chars, viral, emojis modérés, CTA. Finis par: ${ht}","image_prompt":"Imagen 3: Pro floating iPhone 15 Pro Max showing ${app.name} app UI, dark studio, ${app.color} rim light, particles, luxury, 8K"}`
+          content: CAP_PROMPT(app, plat, isVid, day, hook, ht)
         }]
       })
     });
@@ -1594,9 +1697,45 @@ Caption UNIQUE. JSON sans backticks:
     };
   }
 }
-async function genCaption(app, plat, isVid, day, captionModel, antKey, gptKey) {
-  if (captionModel === "gpt" && gptKey) return gptCap(app, plat, isVid, day, gptKey);
-  return claudeCap(app, plat, isVid, day, antKey);
+async function geminiCap(app, plat, isVid, day, gemKey) {
+  const hooks = app.hooks || DEFAULT_HOOKS[app.id] || ["Découvrez " + app.name];
+  const ht = app.ht || DEFAULT_HT[app.id] || "#" + app.name;
+  const hook = hooks[(day + ~~(Math.random() * hooks.length)) % hooks.length];
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${gemKey}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: CAP_PROMPT(app, plat, isVid, day, hook, ht)
+          }]
+        }]
+      })
+    });
+    const d = await r.json();
+    return JSON.parse((d.candidates?.[0]?.content?.parts?.[0]?.text || "{}").replace(/```json|```/g, "").trim());
+  } catch {
+    return {
+      caption: `${hook}\n\n${app.name}\n\n${ht}`,
+      image_prompt: `iPhone 15 Pro floating, ${app.name}, dark studio, ${app.color} light, 8K`
+    };
+  }
+}
+async function genCaption(app, plat, isVid, day, gemKey, antKey, gptKey) {
+  // Try each provider based on available keys
+  if (antKey) try {
+    return await claudeCap(app, plat, isVid, day, antKey);
+  } catch {}
+  if (gptKey) try {
+    return await gptCap(app, plat, isVid, day, gptKey);
+  } catch {}
+  if (gemKey) try {
+    return await geminiCap(app, plat, isVid, day, gemKey);
+  } catch {}
+  throw new Error("Aucune clé caption disponible");
 }
 async function pubIG(cr, cap, img) {
   const c = await (await fetch(proxyUrl(`https://graph.facebook.com/v21.0/${cr.uid}/media`), {
@@ -2528,8 +2667,6 @@ function Dashboard({
   const [gemKey, setGemKey] = useState("");
   const [antKey, setAntKey] = useState("");
   const [gptKey, setGptKey] = useState("");
-  const [imgMod, setImgMod] = useState("imagen");
-  const [capMod, setCapMod] = useState("claude"); // claude | gpt
   const [accounts, setAccounts] = useState({});
 
   // Persist — loaded flag prevents overwrite on first render
@@ -2541,8 +2678,6 @@ function Dashboard({
       if (s.ak) setAntKey(s.ak);
       if (s.ok) setGptKey(s.ok);
       if (s.ac) setAccounts(s.ac);
-      if (s.im) setImgMod(s.im);
-      if (s.cm) setCapMod(s.cm);
       if (s.lg) setLogs(s.lg);
       if (s.pj) setProjects(s.pj);
     }
@@ -2554,12 +2689,26 @@ function Dashboard({
       ak: antKey,
       ok: gptKey,
       ac: accounts,
-      im: imgMod,
-      cm: capMod,
       lg: logs,
       pj: projects
     });
-  }, [gemKey, antKey, gptKey, accounts, imgMod, capMod, logs, projects]);
+  }, [gemKey, antKey, gptKey, accounts, logs, projects]);
+
+  // Campaign settings
+  const [campType, setCampType] = useState("photo"); // photo | video
+  const [selectedProjects, setSelectedProjects] = useState(new Set());
+  useEffect(() => {
+    setSelectedProjects(new Set(projects.map(p => p.id)));
+  }, [projects]);
+  const toggleProject = id => {
+    setSelectedProjects(s => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);else n.add(id);
+      return n;
+    });
+  };
+  const selectAll = () => setSelectedProjects(new Set(projects.map(p => p.id)));
+  const selectNone = () => setSelectedProjects(new Set());
   const msg = (m, ok = true) => {
     setToast({
       m,
@@ -2618,23 +2767,18 @@ function Dashboard({
 
   /* ─── Generate ─── */
   const generateDay = useCallback(async () => {
-    if (!projects.length) {
-      msg("Ajoutez au moins un projet", false);
-      setView("projects");
+    const activeProjects = projects.filter(p => selectedProjects.has(p.id));
+    if (!activeProjects.length) {
+      msg("Sélectionnez au moins un projet", false);
       return;
     }
-    if (!gemKey) {
-      msg("Clé Gemini requise", false);
+    if (!gemKey && !antKey && !gptKey) {
+      msg("Ajoutez au moins une clé API", false);
       setView("settings");
       return;
     }
-    if (capMod === "claude" && !antKey) {
-      msg("Clé Anthropic requise", false);
-      setView("settings");
-      return;
-    }
-    if (capMod === "gpt" && !gptKey) {
-      msg("Clé OpenAI requise", false);
+    if (campType === "video" && !gemKey) {
+      msg("Clé Gemini requise pour les vidéos Veo 3", false);
       setView("settings");
       return;
     }
@@ -2643,19 +2787,23 @@ function Dashboard({
     setGenIdx(0);
     const day = dayRef.current;
     const all = [];
-    for (let i = 0; i < projects.length; i++) {
+    for (let i = 0; i < activeProjects.length; i++) {
       setGenIdx(i);
-      const app = projects[i];
+      const app = activeProjects[i];
       const plat = (day + i) % 2 === 0 ? "instagram" : "tiktok";
-      const isVid = (day + i) % 3 !== 0;
+      const isVid = campType === "video";
       setStatus(app.name);
-      const c = await genCaption(app, plat, isVid, day, capMod, antKey, gptKey);
+      const c = await genCaption(app, plat, isVid, day, gemKey, antKey, gptKey);
       let img = null;
-      try {
-        img = await geminiImg(c.image_prompt, gemKey, imgMod);
-      } catch {
+      let vid = null;
+      if (isVid && gemKey) {
         try {
-          img = await geminiImg(c.image_prompt, gemKey, imgMod === "imagen" ? "nano" : "imagen");
+          vid = await genVideo(c.image_prompt, gemKey);
+        } catch {}
+      }
+      if (!vid) {
+        try {
+          img = await genImage(c.image_prompt, gemKey, antKey, gptKey);
         } catch {}
       }
       all.push({
@@ -2665,6 +2813,7 @@ function Dashboard({
         isVid,
         caption: c.caption,
         img,
+        vid,
         ok: false,
         err: null
       });
@@ -2673,8 +2822,8 @@ function Dashboard({
     dayRef.current++;
     setPhase("review");
     setGenIdx(-1);
-    msg(`${projects.length} posts prêts`);
-  }, [gemKey, antKey, gptKey, capMod, imgMod, projects]);
+    msg(`${activeProjects.length} posts prêts`);
+  }, [gemKey, antKey, gptKey, projects, selectedProjects, campType]);
 
   /* ─── Approve ─── */
   const approveAll = useCallback(async () => {
@@ -2734,19 +2883,28 @@ function Dashboard({
       img: null
     };
     setPosts(u);
-    const c = await genCaption(post.app, post.plat, post.isVid, dayRef.current, capMod, antKey, gptKey);
+    const c = await genCaption(post.app, post.plat, post.isVid, dayRef.current, gemKey, antKey, gptKey);
     let img = null;
-    try {
-      img = await geminiImg(c.image_prompt, gemKey, imgMod);
-    } catch {}
+    let vid = null;
+    if (post.isVid && gemKey) {
+      try {
+        vid = await genVideo(c.image_prompt, gemKey);
+      } catch {}
+    }
+    if (!vid) {
+      try {
+        img = await genImage(c.image_prompt, gemKey, antKey, gptKey);
+      } catch {}
+    }
     u[i] = {
       ...post,
       caption: c.caption,
-      img
+      img,
+      vid
     };
     setPosts([...u]);
     msg(`${post.app.name} régénéré`);
-  }, [posts, gemKey, antKey, gptKey, capMod, imgMod]);
+  }, [posts, gemKey, antKey, gptKey]);
   const pickColor = () => {
     const cols = ["#C4A882", "#5BD4C4", "#8B7CF6", "#F67070", "#FF6B6B", "#FF8C42", "#A78BFA", "#818CF8", "#34D399", "#F472B6"];
     return cols[Math.floor(Math.random() * cols.length)];
@@ -2933,7 +3091,83 @@ function Dashboard({
   }, timeStr), projects.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       margin: "36px auto",
-      maxWidth: 540,
+      maxWidth: 540
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 2,
+      background: "rgba(255,255,255,.02)",
+      borderRadius: 980,
+      padding: 3,
+      border: "0.5px solid rgba(255,255,255,.04)"
+    }
+  }, [["photo", "📷 Campagne Photo"], ["video", "🎬 Campagne Vidéo"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setCampType(k),
+    style: {
+      padding: "7px 20px",
+      borderRadius: 980,
+      border: "none",
+      background: campType === k ? "rgba(196,168,130,.08)" : "transparent",
+      color: campType === k ? "#C4A882" : "rgba(255,255,255,.2)",
+      fontSize: 12,
+      cursor: "pointer",
+      fontFamily: "inherit",
+      fontWeight: campType === k ? 600 : 400
+    }
+  }, l)))), campType === "video" && !gemKey && /*#__PURE__*/React.createElement("p", {
+    style: {
+      textAlign: "center",
+      fontSize: 10,
+      color: "#FF6B6B",
+      marginBottom: 12
+    }
+  }, "Cl\xE9 Gemini requise pour Veo 3"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,.15)"
+    }
+  }, selectedProjects.size, "/", projects.length, " projets s\xE9lectionn\xE9s"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: selectAll,
+    style: {
+      background: "none",
+      border: "none",
+      color: "rgba(255,255,255,.2)",
+      fontSize: 9,
+      cursor: "pointer",
+      fontFamily: "inherit"
+    }
+  }, "Tout"), /*#__PURE__*/React.createElement("button", {
+    onClick: selectNone,
+    style: {
+      background: "none",
+      border: "none",
+      color: "rgba(255,255,255,.2)",
+      fontSize: 9,
+      cursor: "pointer",
+      fontFamily: "inherit"
+    }
+  }, "Aucun"))), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: "grid",
       gridTemplateColumns: `repeat(${Math.min(projects.length, 4)},1fr)`,
       gap: 8
@@ -2941,11 +3175,15 @@ function Dashboard({
   }, projects.map((app, i) => /*#__PURE__*/React.createElement(Glass, {
     key: app.id,
     hover: true,
-    glow: app.color,
+    glow: selectedProjects.has(app.id) ? app.color : "transparent",
+    onClick: () => toggleProject(app.id),
     style: {
       padding: "12px 8px",
       textAlign: "center",
-      animation: `cardReveal .4s ease ${i * .06}s both`
+      animation: `cardReveal .4s ease ${i * .06}s both`,
+      cursor: "pointer",
+      opacity: selectedProjects.has(app.id) ? 1 : .35,
+      transition: "opacity .2s"
     }
   }, /*#__PURE__*/React.createElement(AppMark, {
     color: app.color,
@@ -2973,16 +3211,24 @@ function Dashboard({
   }), /*#__PURE__*/React.createElement(Dot, {
     on: connCt(app.id) >= 2,
     size: 4
-  }))))), /*#__PURE__*/React.createElement(Pill, {
+  })), selectedProjects.has(app.id) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 8,
+      color: "#34D399",
+      marginTop: 3
+    }
+  }, "\u2713"))))), /*#__PURE__*/React.createElement(Pill, {
     onClick: generateDay,
     size: "lg",
     color: "#E8D5B7",
     glow: "#C4A882",
+    disabled: !selectedProjects.size,
     style: {
       background: "linear-gradient(135deg, rgba(196,168,130,.10), rgba(196,168,130,.04))",
       border: "0.5px solid rgba(196,168,130,.20)",
       fontWeight: 600,
-      boxShadow: "0 0 60px rgba(196,168,130,.08)"
+      boxShadow: "0 0 60px rgba(196,168,130,.08)",
+      opacity: selectedProjects.size ? 1 : .4
     }
   }, t("generate")), /*#__PURE__*/React.createElement("p", {
     style: {
@@ -2991,7 +3237,7 @@ function Dashboard({
       marginTop: 10,
       fontWeight: 300
     }
-  }, projects.length, " visuels + captions"), !projects.length && /*#__PURE__*/React.createElement("div", {
+  }, selectedProjects.size, " ", campType === "video" ? "vidéos Veo 3" : "visuels", " + captions"), !projects.length && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 40
     }
@@ -3159,7 +3405,18 @@ function Dashboard({
       overflow: "hidden",
       background: `linear-gradient(180deg, ${p.app.color || "#555"}06, transparent)`
     }
-  }, p.img ? /*#__PURE__*/React.createElement("img", {
+  }, p.vid ? /*#__PURE__*/React.createElement("video", {
+    src: p.vid,
+    style: {
+      width: "100%",
+      height: "100%",
+      objectFit: "cover"
+    },
+    muted: true,
+    autoPlay: true,
+    loop: true,
+    playsInline: true
+  }) : p.img ? /*#__PURE__*/React.createElement("img", {
     src: p.img,
     alt: "",
     style: {
@@ -3182,7 +3439,25 @@ function Dashboard({
       fontWeight: 200,
       opacity: .3
     }
-  }, p.app.name?.charAt(0))), /*#__PURE__*/React.createElement("div", {
+  }, p.app.name?.charAt(0))), p.isVid && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 8,
+      left: p.ok ? "auto" : 8,
+      right: p.ok ? 8 : "auto"
+    }
+  }, /*#__PURE__*/React.createElement(Glass, {
+    style: {
+      padding: "2px 7px",
+      borderRadius: 980,
+      background: "rgba(0,0,0,.5)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      color: "#C4A882"
+    }
+  }, p.vid ? "▶ Veo" : "▶ Reel"))), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       top: 8,
@@ -3543,157 +3818,137 @@ function Dashboard({
       fontWeight: 600,
       letterSpacing: 1.5,
       color: "#C4A882",
-      marginBottom: 10,
+      marginBottom: 14,
       textTransform: "uppercase"
     }
-  }, t("global_keys")), /*#__PURE__*/React.createElement("div", {
+  }, "Vos cl\xE9s API"), /*#__PURE__*/React.createElement("p", {
     style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr 1fr",
-      gap: 14
+      fontSize: 11,
+      color: "rgba(255,255,255,.2)",
+      marginBottom: 16,
+      fontWeight: 300,
+      lineHeight: 1.6
+    }
+  }, "Remplissez au moins une cl\xE9. MagicFeed utilise automatiquement la cl\xE9 disponible pour g\xE9n\xE9rer captions + images."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 10,
-      color: "rgba(255,255,255,.15)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
       marginBottom: 4
     }
-  }, "Google Gemini"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: gemKey ? "#34D399" : "rgba(255,255,255,.08)"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 500,
+      color: gemKey ? "#C4A882" : "rgba(255,255,255,.25)"
+    }
+  }, "Google Gemini"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.08)",
+      marginLeft: "auto"
+    }
+  }, "Captions + Images (Imagen 3, Nano Banana)")), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "AIza...",
     value: gemKey,
     onChange: e => setGemKey(e.target.value)
-  }), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 8,
-      color: "rgba(255,255,255,.06)",
-      marginTop: 3
-    }
-  }, "Images (Imagen 3)")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "rgba(255,255,255,.15)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
       marginBottom: 4
     }
-  }, "Anthropic (Claude)"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: antKey ? "#34D399" : "rgba(255,255,255,.08)"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 500,
+      color: antKey ? "#C4A882" : "rgba(255,255,255,.25)"
+    }
+  }, "Anthropic (Claude)"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.08)",
+      marginLeft: "auto"
+    }
+  }, "Captions + Images")), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "sk-ant-...",
     value: antKey,
     onChange: e => setAntKey(e.target.value)
-  }), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 8,
-      color: "rgba(255,255,255,.06)",
-      marginTop: 3
-    }
-  }, "Captions IA")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "rgba(255,255,255,.15)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
       marginBottom: 4
     }
-  }, "OpenAI (GPT)"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: gptKey ? "#34D399" : "rgba(255,255,255,.08)"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 500,
+      color: gptKey ? "#C4A882" : "rgba(255,255,255,.25)"
+    }
+  }, "OpenAI (GPT)"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.08)",
+      marginLeft: "auto"
+    }
+  }, "Captions + Images (DALL-E)")), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "sk-...",
     value: gptKey,
     onChange: e => setGptKey(e.target.value)
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 8,
-      color: "rgba(255,255,255,.06)",
-      marginTop: 3
-    }
-  }, "Captions IA (alternatif)"))), /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 16,
-      paddingTop: 14,
-      borderTop: "0.5px solid rgba(255,255,255,.04)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 9,
+      paddingTop: 12,
+      borderTop: "0.5px solid rgba(255,255,255,.04)",
+      fontSize: 10,
       color: "rgba(255,255,255,.12)",
-      marginBottom: 6,
-      fontWeight: 500
+      lineHeight: 1.8
     }
-  }, "MOD\xC8LE CAPTIONS"), /*#__PURE__*/React.createElement("div", {
+  }, [gemKey && "Gemini", antKey && "Claude", gptKey && "GPT"].filter(Boolean).length ? /*#__PURE__*/React.createElement("span", null, "Cl\xE9s actives : ", /*#__PURE__*/React.createElement("span", {
     style: {
-      display: "flex",
-      gap: 2,
-      background: "rgba(255,255,255,.02)",
-      borderRadius: 980,
-      padding: 2,
-      border: "0.5px solid rgba(255,255,255,.04)",
-      width: "fit-content"
+      color: "#34D399"
     }
-  }, [["claude", "Claude"], ["gpt", "GPT-4o"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
-    key: k,
-    onClick: () => setCapMod(k),
+  }, [gemKey && "Gemini", antKey && "Claude", gptKey && "GPT"].filter(Boolean).join(" · "))) : /*#__PURE__*/React.createElement("span", {
     style: {
-      padding: "5px 16px",
-      borderRadius: 980,
-      border: "none",
-      background: capMod === k ? "rgba(196,168,130,.08)" : "transparent",
-      color: capMod === k ? "#C4A882" : "rgba(255,255,255,.2)",
-      fontSize: 11,
-      cursor: "pointer",
-      fontFamily: "inherit",
-      fontWeight: capMod === k ? 600 : 400
+      color: "#FF6B6B"
     }
-  }, l))), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 8,
-      color: "rgba(255,255,255,.06)",
-      marginTop: 4,
-      display: "block"
-    }
-  }, capMod === "claude" ? "Utilise votre clé Anthropic" : "Utilise votre clé OpenAI", " \xB7 Remplissez au moins une des deux")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 14,
-      paddingTop: 14,
-      borderTop: "0.5px solid rgba(255,255,255,.04)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 9,
-      color: "rgba(255,255,255,.12)",
-      marginBottom: 6,
-      fontWeight: 500
-    }
-  }, "MOD\xC8LE IMAGES"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 2,
-      background: "rgba(255,255,255,.02)",
-      borderRadius: 980,
-      padding: 2,
-      border: "0.5px solid rgba(255,255,255,.04)",
-      width: "fit-content"
-    }
-  }, [["imagen", "Imagen 3"], ["nano", "Nano Banana"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
-    key: k,
-    onClick: () => setImgMod(k),
-    style: {
-      padding: "5px 14px",
-      borderRadius: 980,
-      border: "none",
-      background: imgMod === k ? "rgba(196,168,130,.08)" : "transparent",
-      color: imgMod === k ? "#C4A882" : "rgba(255,255,255,.2)",
-      fontSize: 11,
-      cursor: "pointer",
-      fontFamily: "inherit"
-    }
-  }, l))), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 8,
-      color: "rgba(255,255,255,.06)",
-      marginTop: 4,
-      display: "block"
-    }
-  }, t("fallback_auto")))), /*#__PURE__*/React.createElement(Glass, {
+  }, "Aucune cl\xE9 configur\xE9e \u2014 ajoutez au moins une cl\xE9 pour g\xE9n\xE9rer"))), /*#__PURE__*/React.createElement(Glass, {
     style: {
       padding: 14,
       marginTop: 12
