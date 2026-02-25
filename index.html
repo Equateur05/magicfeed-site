@@ -1,7 +1,23 @@
-import { useState, useCallback, useRef, useEffect, useMemo, createContext, useContext } from "react";
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MagicFeed — Social Media AI</title>
+  <meta name="description" content="MagicFeed — Génère et publie du contenu IA sur Instagram et TikTok. 9€/mois."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useCallback, useRef, useEffect, useMemo, createContext, useContext } = React;
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   A U T O P I L O T  —  SaaS Edition
+   M A G I C F E E D  —  SaaS Edition
    ─────────────────────────────────────
    Landing → Auth → Stripe → Dashboard
    9€/mois · Tes clés API · Contenu illimité
@@ -1151,3 +1167,8 @@ export default function App(){
     </I18nCtx.Provider>
   );
 }
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
