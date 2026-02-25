@@ -1562,6 +1562,42 @@ Caption UNIQUE. JSON sans backticks:
     };
   }
 }
+async function gptCap(app, plat, isVid, day, openaiKey) {
+  const hooks = app.hooks || DEFAULT_HOOKS[app.id] || ["Découvrez " + app.name];
+  const ht = app.ht || DEFAULT_HT[app.id] || "#" + app.name;
+  const hook = hooks[(day + ~~(Math.random() * hooks.length)) % hooks.length];
+  try {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openaiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 600,
+        messages: [{
+          role: "user",
+          content: `Copywriter social media premium apps mobiles françaises. Seed: ${app.id}-${day}-${plat}-${Date.now()}.
+App: "${app.name}" (${app.sub}). ${app.desc || app.sub}. Hook: "${hook}". Platform: ${plat}. Format: ${isVid ? "Reel 15s" : "Image"}.
+Caption UNIQUE. JSON sans backticks:
+{"caption":"Caption ${plat} FR, 120-180 chars, viral, emojis modérés, CTA. Finis par: ${ht}","image_prompt":"Imagen 3: Pro floating iPhone 15 Pro Max showing ${app.name} app UI, dark studio, ${app.color} rim light, particles, luxury, 8K"}`
+        }]
+      })
+    });
+    const d = await r.json();
+    return JSON.parse((d.choices?.[0]?.message?.content || "{}").replace(/```json|```/g, "").trim());
+  } catch {
+    return {
+      caption: `${hook}\n\n${app.name}\n\n${ht}`,
+      image_prompt: `iPhone 15 Pro floating, ${app.name}, dark studio, ${app.color} light, 8K`
+    };
+  }
+}
+async function genCaption(app, plat, isVid, day, captionModel, antKey, gptKey) {
+  if (captionModel === "gpt" && gptKey) return gptCap(app, plat, isVid, day, gptKey);
+  return claudeCap(app, plat, isVid, day, antKey);
+}
 async function pubIG(cr, cap, img) {
   const c = await (await fetch(proxyUrl(`https://graph.facebook.com/v21.0/${cr.uid}/media`), {
     method: "POST",
@@ -2254,6 +2290,35 @@ function PaywallPage({
   const {
     t
   } = useT();
+  const [promo, setPromo] = useState("");
+  const [promoErr, setPromoErr] = useState("");
+  const [promoOk, setPromoOk] = useState(false);
+  const PROMO_CODES = {
+    "REBORN": true
+  };
+  const tryPromo = () => {
+    const code = promo.trim().toUpperCase();
+    if (PROMO_CODES[code]) {
+      setPromoOk(true);
+      setPromoErr("");
+      lsSet("ap_paid", {
+        method: "promo",
+        code,
+        ts: Date.now()
+      });
+      setTimeout(() => onPaid(), 800);
+    } else {
+      setPromoErr("Code invalide");
+      setPromoOk(false);
+    }
+  };
+  const handleStripePaid = () => {
+    lsSet("ap_paid", {
+      method: "stripe",
+      ts: Date.now()
+    });
+    onPaid();
+  };
   return /*#__PURE__*/React.createElement("div", {
     style: {
       minHeight: "100vh",
@@ -2292,7 +2357,7 @@ function PaywallPage({
       fontWeight: 200,
       color: "#C4A882"
     }
-  }, "A")), /*#__PURE__*/React.createElement("h2", {
+  }, "M")), /*#__PURE__*/React.createElement("h2", {
     style: {
       fontSize: 24,
       fontWeight: 700,
@@ -2348,7 +2413,7 @@ function PaywallPage({
       border: "0.5px solid rgba(196,168,130,.22)",
       boxShadow: "0 0 60px rgba(196,168,130,.1)"
     }
-  }, "S'abonner \u2014 9\u20AC/mois"), /*#__PURE__*/React.createElement("p", {
+  }, t("pw_stripe")), /*#__PURE__*/React.createElement("p", {
     style: {
       marginTop: 12,
       fontSize: 10,
@@ -2359,7 +2424,52 @@ function PaywallPage({
     style: {
       marginTop: 20,
       paddingTop: 16,
-      borderTop: "0.5px solid rgba(255,255,255,.04)",
+      borderTop: "0.5px solid rgba(255,255,255,.04)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "glass-input",
+    placeholder: "Code promo",
+    value: promo,
+    onChange: e => {
+      setPromo(e.target.value);
+      setPromoErr("");
+    },
+    onKeyDown: e => e.key === "Enter" && tryPromo(),
+    style: {
+      flex: 1,
+      fontSize: 11,
+      padding: "8px 12px"
+    }
+  }), /*#__PURE__*/React.createElement(Pill, {
+    onClick: tryPromo,
+    size: "sm",
+    color: "#C4A882",
+    disabled: !promo.trim(),
+    style: {
+      fontSize: 10,
+      whiteSpace: "nowrap"
+    }
+  }, "Appliquer")), promoErr && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      color: "#FF6B6B",
+      marginTop: 6
+    }
+  }, promoErr), promoOk && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      color: "#34D399",
+      marginTop: 6
+    }
+  }, "\u2713 Code accept\xE9 \u2014 Activation...")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center"
@@ -2370,16 +2480,13 @@ function PaywallPage({
       color: "rgba(255,255,255,.1)"
     }
   }, user.email), /*#__PURE__*/React.createElement(Pill, {
-    onClick: () => {
-      // After Stripe redirect, simulate activation
-      onPaid();
-    },
+    onClick: handleStripePaid,
     size: "sm",
     color: "#34D399",
     style: {
       fontSize: 10
     }
-  }, "J'ai pay\xE9 \u2192 Activer")), /*#__PURE__*/React.createElement("button", {
+  }, t("pw_paid"))), /*#__PURE__*/React.createElement("button", {
     onClick: onLogout,
     style: {
       marginTop: 12,
@@ -2420,7 +2527,9 @@ function Dashboard({
   // API keys
   const [gemKey, setGemKey] = useState("");
   const [antKey, setAntKey] = useState("");
+  const [gptKey, setGptKey] = useState("");
   const [imgMod, setImgMod] = useState("imagen");
+  const [capMod, setCapMod] = useState("claude"); // claude | gpt
   const [accounts, setAccounts] = useState({});
 
   // Persist — loaded flag prevents overwrite on first render
@@ -2430,8 +2539,10 @@ function Dashboard({
     if (s) {
       if (s.gk) setGemKey(s.gk);
       if (s.ak) setAntKey(s.ak);
+      if (s.ok) setGptKey(s.ok);
       if (s.ac) setAccounts(s.ac);
       if (s.im) setImgMod(s.im);
+      if (s.cm) setCapMod(s.cm);
       if (s.lg) setLogs(s.lg);
       if (s.pj) setProjects(s.pj);
     }
@@ -2441,12 +2552,14 @@ function Dashboard({
     if (loadedRef.current) lsSet("ap_dash", {
       gk: gemKey,
       ak: antKey,
+      ok: gptKey,
       ac: accounts,
       im: imgMod,
+      cm: capMod,
       lg: logs,
       pj: projects
     });
-  }, [gemKey, antKey, accounts, imgMod, logs, projects]);
+  }, [gemKey, antKey, gptKey, accounts, imgMod, capMod, logs, projects]);
   const msg = (m, ok = true) => {
     setToast({
       m,
@@ -2515,8 +2628,13 @@ function Dashboard({
       setView("settings");
       return;
     }
-    if (!antKey) {
+    if (capMod === "claude" && !antKey) {
       msg("Clé Anthropic requise", false);
+      setView("settings");
+      return;
+    }
+    if (capMod === "gpt" && !gptKey) {
+      msg("Clé OpenAI requise", false);
       setView("settings");
       return;
     }
@@ -2531,7 +2649,7 @@ function Dashboard({
       const plat = (day + i) % 2 === 0 ? "instagram" : "tiktok";
       const isVid = (day + i) % 3 !== 0;
       setStatus(app.name);
-      const c = await claudeCap(app, plat, isVid, day, antKey);
+      const c = await genCaption(app, plat, isVid, day, capMod, antKey, gptKey);
       let img = null;
       try {
         img = await geminiImg(c.image_prompt, gemKey, imgMod);
@@ -2556,7 +2674,7 @@ function Dashboard({
     setPhase("review");
     setGenIdx(-1);
     msg(`${projects.length} posts prêts`);
-  }, [gemKey, antKey, imgMod, projects]);
+  }, [gemKey, antKey, gptKey, capMod, imgMod, projects]);
 
   /* ─── Approve ─── */
   const approveAll = useCallback(async () => {
@@ -2616,7 +2734,7 @@ function Dashboard({
       img: null
     };
     setPosts(u);
-    const c = await claudeCap(post.app, post.plat, post.isVid, dayRef.current, antKey);
+    const c = await genCaption(post.app, post.plat, post.isVid, dayRef.current, capMod, antKey, gptKey);
     let img = null;
     try {
       img = await geminiImg(c.image_prompt, gemKey, imgMod);
@@ -2628,7 +2746,7 @@ function Dashboard({
     };
     setPosts([...u]);
     msg(`${post.app.name} régénéré`);
-  }, [posts, gemKey, antKey, imgMod]);
+  }, [posts, gemKey, antKey, gptKey, capMod, imgMod]);
   const pickColor = () => {
     const cols = ["#C4A882", "#5BD4C4", "#8B7CF6", "#F67070", "#FF6B6B", "#FF8C42", "#A78BFA", "#818CF8", "#34D399", "#F472B6"];
     return cols[Math.floor(Math.random() * cols.length)];
@@ -3365,7 +3483,7 @@ function Dashboard({
     }
   }, "Instagram"), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
-    placeholder: "User ID",
+    placeholder: "Nom d'utilisateur (ex: harmonicsofficial)",
     value: accounts[app.id]?.ig_uid || "",
     onChange: e => upAcc(app.id, "ig_uid", e.target.value),
     style: {
@@ -3376,7 +3494,7 @@ function Dashboard({
   }), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
-    placeholder: "Token",
+    placeholder: "Token d'acc\xE8s Instagram",
     value: accounts[app.id]?.ig_tok || "",
     onChange: e => upAcc(app.id, "ig_tok", e.target.value),
     style: {
@@ -3392,7 +3510,7 @@ function Dashboard({
   }, "TikTok"), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
-    placeholder: "Token",
+    placeholder: "Token d'acc\xE8s TikTok",
     value: accounts[app.id]?.tt_tok || "",
     onChange: e => upAcc(app.id, "tt_tok", e.target.value),
     style: {
@@ -3431,7 +3549,7 @@ function Dashboard({
   }, t("global_keys")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "1fr 1fr",
+      gridTemplateColumns: "1fr 1fr 1fr",
       gap: 14
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -3446,33 +3564,114 @@ function Dashboard({
     placeholder: "AIza...",
     value: gemKey,
     onChange: e => setGemKey(e.target.value)
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.06)",
+      marginTop: 3
+    }
+  }, "Images (Imagen 3)")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10,
       color: "rgba(255,255,255,.15)",
       marginBottom: 4
     }
-  }, "Anthropic"), /*#__PURE__*/React.createElement("input", {
+  }, "Anthropic (Claude)"), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "sk-ant-...",
     value: antKey,
     onChange: e => setAntKey(e.target.value)
-  }))), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      gap: 4,
-      marginTop: 14,
-      alignItems: "center"
+      fontSize: 8,
+      color: "rgba(255,255,255,.06)",
+      marginTop: 3
+    }
+  }, "Captions IA")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,.15)",
+      marginBottom: 4
+    }
+  }, "OpenAI (GPT)"), /*#__PURE__*/React.createElement("input", {
+    className: "glass-input",
+    type: "password",
+    placeholder: "sk-...",
+    value: gptKey,
+    onChange: e => setGptKey(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.06)",
+      marginTop: 3
+    }
+  }, "Captions IA (alternatif)"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16,
+      paddingTop: 14,
+      borderTop: "0.5px solid rgba(255,255,255,.04)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: "rgba(255,255,255,.12)",
+      marginBottom: 6,
+      fontWeight: 500
+    }
+  }, "MOD\xC8LE CAPTIONS"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 2,
       background: "rgba(255,255,255,.02)",
       borderRadius: 980,
       padding: 2,
-      border: "0.5px solid rgba(255,255,255,.04)"
+      border: "0.5px solid rgba(255,255,255,.04)",
+      width: "fit-content"
+    }
+  }, [["claude", "Claude"], ["gpt", "GPT-4o"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setCapMod(k),
+    style: {
+      padding: "5px 16px",
+      borderRadius: 980,
+      border: "none",
+      background: capMod === k ? "rgba(196,168,130,.08)" : "transparent",
+      color: capMod === k ? "#C4A882" : "rgba(255,255,255,.2)",
+      fontSize: 11,
+      cursor: "pointer",
+      fontFamily: "inherit",
+      fontWeight: capMod === k ? 600 : 400
+    }
+  }, l))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 8,
+      color: "rgba(255,255,255,.06)",
+      marginTop: 4,
+      display: "block"
+    }
+  }, capMod === "claude" ? "Utilise votre clé Anthropic" : "Utilise votre clé OpenAI", " \xB7 Remplissez au moins une des deux")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14,
+      paddingTop: 14,
+      borderTop: "0.5px solid rgba(255,255,255,.04)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: "rgba(255,255,255,.12)",
+      marginBottom: 6,
+      fontWeight: 500
+    }
+  }, "MOD\xC8LE IMAGES"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 2,
+      background: "rgba(255,255,255,.02)",
+      borderRadius: 980,
+      padding: 2,
+      border: "0.5px solid rgba(255,255,255,.04)",
+      width: "fit-content"
     }
   }, [["imagen", "Imagen 3"], ["nano", "Nano Banana"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
     key: k,
@@ -3489,9 +3688,10 @@ function Dashboard({
     }
   }, l))), /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 9,
-      color: "rgba(255,255,255,.1)",
-      marginLeft: 6
+      fontSize: 8,
+      color: "rgba(255,255,255,.06)",
+      marginTop: 4,
+      display: "block"
     }
   }, t("fallback_auto")))), /*#__PURE__*/React.createElement(Glass, {
     style: {
@@ -3515,7 +3715,12 @@ function Dashboard({
       color: "#C4A882",
       fontWeight: 500
     }
-  }, "Anthropic"), " \u2014 console.anthropic.com \u2192 API Keys")), /*#__PURE__*/React.createElement(Glass, {
+  }, "Anthropic"), " \u2014 console.anthropic.com \u2192 API Keys", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C4A882",
+      fontWeight: 500
+    }
+  }, "OpenAI"), " \u2014 platform.openai.com \u2192 API Keys")), /*#__PURE__*/React.createElement(Glass, {
     style: {
       padding: 16,
       marginTop: 12
@@ -3628,6 +3833,9 @@ function NewProjectModal({
   onClose,
   pickColor
 }) {
+  const {
+    t
+  } = useT();
   const [name, setName] = useState("");
   const [sub, setSub] = useState("");
   const [desc, setDesc] = useState("");
@@ -3670,7 +3878,7 @@ function NewProjectModal({
       marginBottom: 16,
       fontWeight: 300
     }
-  }, "Plus vous d\xE9crivez, plus l\\'IA sera pr\xE9cise."), /*#__PURE__*/React.createElement("input", {
+  }, "Plus vous d\xE9crivez, plus l'IA sera pr\xE9cise."), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     placeholder: "Nom du projet (ex: FitCoach)",
     value: name,
@@ -3688,7 +3896,7 @@ function NewProjectModal({
     }
   }), /*#__PURE__*/React.createElement("textarea", {
     className: "glass-input",
-    placeholder: "Description d\xE9taill\xE9e pour l\\'IA : cible, ton, fonctionnalit\xE9s cl\xE9s...",
+    placeholder: "Description d\xE9taill\xE9e pour l'IA : cible, ton, fonctionnalit\xE9s cl\xE9s...",
     value: desc,
     onChange: e => setDesc(e.target.value),
     rows: 3,
@@ -3763,7 +3971,9 @@ function AppInner() {
     const savedAuth = lsGet("ap_auth");
     if (savedAuth) {
       setUser(savedAuth.user);
-      setPage(savedAuth.page || "landing");
+      // If already paid, go straight to dashboard
+      const paid = lsGet("ap_paid");
+      if (paid && savedAuth.page === "paywall") setPage("dashboard");else setPage(savedAuth.page || "landing");
     }
     authLoaded.current = true;
   }, []);
@@ -3775,7 +3985,8 @@ function AppInner() {
   }, [user, page]);
   const handleLogin = u => {
     setUser(u);
-    setPage("paywall");
+    const paid = lsGet("ap_paid");
+    setPage(paid ? "dashboard" : "paywall");
   };
   const handlePaid = () => setPage("dashboard");
   const handleLogout = () => {
