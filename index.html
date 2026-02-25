@@ -3866,18 +3866,27 @@ function Dashboard({
       fontWeight: 500,
       color: gemKey ? "#C4A882" : "rgba(255,255,255,.25)"
     }
-  }, "Google Gemini"), /*#__PURE__*/React.createElement("span", {
+  }, "Google Gemini"), gemKey && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      color: "#34D399",
+      marginLeft: 4
+    }
+  }, "\u2713 Sauvegard\xE9e"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 8,
       color: "rgba(255,255,255,.08)",
       marginLeft: "auto"
     }
-  }, "Captions + Images (Imagen 3, Nano Banana)")), /*#__PURE__*/React.createElement("input", {
+  }, "Captions + Images + Vid\xE9os (Veo 3)")), /*#__PURE__*/React.createElement("input", {
     className: "glass-input",
     type: "password",
     placeholder: "AIza...",
     value: gemKey,
-    onChange: e => setGemKey(e.target.value)
+    onChange: e => setGemKey(e.target.value),
+    style: {
+      borderColor: gemKey ? "rgba(52,199,89,.15)" : "transparent"
+    }
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -3898,7 +3907,13 @@ function Dashboard({
       fontWeight: 500,
       color: antKey ? "#C4A882" : "rgba(255,255,255,.25)"
     }
-  }, "Anthropic (Claude)"), /*#__PURE__*/React.createElement("span", {
+  }, "Anthropic (Claude)"), antKey && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      color: "#34D399",
+      marginLeft: 4
+    }
+  }, "\u2713 Sauvegard\xE9e"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 8,
       color: "rgba(255,255,255,.08)",
@@ -3909,7 +3924,10 @@ function Dashboard({
     type: "password",
     placeholder: "sk-ant-...",
     value: antKey,
-    onChange: e => setAntKey(e.target.value)
+    onChange: e => setAntKey(e.target.value),
+    style: {
+      borderColor: antKey ? "rgba(52,199,89,.15)" : "transparent"
+    }
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -3930,7 +3948,13 @@ function Dashboard({
       fontWeight: 500,
       color: gptKey ? "#C4A882" : "rgba(255,255,255,.25)"
     }
-  }, "OpenAI (GPT)"), /*#__PURE__*/React.createElement("span", {
+  }, "OpenAI (GPT)"), gptKey && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      color: "#34D399",
+      marginLeft: 4
+    }
+  }, "\u2713 Sauvegard\xE9e"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 8,
       color: "rgba(255,255,255,.08)",
@@ -3941,7 +3965,10 @@ function Dashboard({
     type: "password",
     placeholder: "sk-...",
     value: gptKey,
-    onChange: e => setGptKey(e.target.value)
+    onChange: e => setGptKey(e.target.value),
+    style: {
+      borderColor: gptKey ? "rgba(52,199,89,.15)" : "transparent"
+    }
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 16,
